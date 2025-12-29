@@ -5,7 +5,7 @@
 
 A Backstage plugin for tracking and visualizing [DORA (DevOps Research and Assessment) metrics](https://cloud.google.com/blog/products/devops-sre/using-the-four-keys-to-measure-your-devops-performance) with an intuitive scorecard interface.
 
-![DORA Scorecard Screenshot](./dora.png)
+![DORA Scorecard Screenshot](./dora-metrics.png)
 
 ## Features
 
