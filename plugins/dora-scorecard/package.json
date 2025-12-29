@@ -1,6 +1,6 @@
 {
   "name": "@jikwan/backstage-plugin-dora-scorecard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backstage plugin for tracking DORA (DevOps Research and Assessment) metrics with scorecard visualization",
   "main": "src/index.ts",
   "types": "src/index.ts",

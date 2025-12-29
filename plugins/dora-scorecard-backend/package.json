@@ -1,6 +1,6 @@
 {
   "name": "@jikwan/backstage-plugin-dora-scorecard-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend for Backstage DORA Scorecard plugin - collects and serves DORA metrics data",
   "main": "src/index.ts",
   "types": "src/index.ts",
