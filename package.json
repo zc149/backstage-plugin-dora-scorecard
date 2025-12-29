@@ -1,0 +1,27 @@
+{
+  "name": "backstage-plugin-dora-scorecard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backstage plugin for tracking DORA metrics with scorecard visualization",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zc149/backstage-plugin-dora-scorecard.git"
+  },
+  "author": "jikwan",
+  "license": "Apache-2.0",
+  "workspaces": {
+    "packages": [
+      "plugins/*"
+    ]
+  },
+  "scripts": {
+    "build": "yarn workspaces foreach -pt run build",
+    "lint": "yarn workspaces foreach -pt run lint",
+    "test": "yarn workspaces foreach -pt run test",
+    "clean": "yarn workspaces foreach -pt run clean"
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.29.3"
+  },
+  "packageManager": "yarn@3.2.3"
+}

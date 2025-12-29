@@ -1,0 +1,22 @@
+# Source files
+src/
+*.tsbuildinfo
+
+# Tests
+**/*.test.*
+**/*.spec.*
+**/__tests__/
+**/__mocks__/
+
+# Development
+.eslintrc.js
+tsconfig.json
+
+# Documentation
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
