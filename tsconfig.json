@@ -1,9 +1,0 @@
-{
-  "extends": "@backstage/cli/config/tsconfig.json",
-  "compilerOptions": {
-    "outDir": "dist-types",
-    "rootDir": "."
-  },
-  "include": ["plugins/*/src/**/*"],
-  "exclude": ["node_modules"]
-}

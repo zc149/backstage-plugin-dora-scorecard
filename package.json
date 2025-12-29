@@ -22,5 +22,6 @@
   },
   "devDependencies": {
     "@backstage/cli": "^0.29.3"
-  }
+  },
+  "packageManager": "yarn@3.2.3"
 }
