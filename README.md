@@ -36,7 +36,7 @@ yarn add --cwd packages/backend @jikwan/backstage-plugin-dora-scorecard-backend
 
 ```typescript
 // packages/app/src/components/catalog/EntityPage.tsx
-import { DoraMetricsCard } from '@jikwan/backstage-plugin-dora-scorecard';
+import { DoraScorecard } from '@jikwan/backstage-plugin-dora-scorecard';
 
 // Add to your service entity page
 const serviceEntityPage = (
@@ -45,7 +45,7 @@ const serviceEntityPage = (
     <EntityLayout.Route path="/dora" title="DORA Metrics">
       <Grid container spacing={3}>
         <Grid item xs={12}>
-          <DoraMetricsCard />
+          <DoraScorecard />
         </Grid>
       </Grid>
     </EntityLayout.Route>
@@ -71,6 +71,8 @@ backend.start();
 ### 4. Configure the plugin
 
 Add the following to your `app-config.yaml`:
+
+#### OPTION 1: Personal Access Token
 
 ```yaml
 doraMetrics:
@@ -104,6 +106,48 @@ doraMetrics:
   #   excludeServices: [test-service]          # Exclude these services
 ```
 
+#### OPTION 2: GitHub App
+
+```yaml
+integrations:
+  github:
+    - host: github.com
+      apps:
+        - appId: ${GITHUB_APP_ID}
+          clientId: ${GITHUB_APP_CLIENT_ID}
+          clientSecret: ${GITHUB_APP_CLIENT_SECRET}
+          privateKey: |
+            ${GITHUB_APP_PRIVATE_KEY}
+
+doraMetrics:
+  # GitHub configuration
+  github:
+    # List of GitHub organizations to monitor
+    organizations:
+      - your-org-name
+
+  # Environment name mappings
+  environments:
+    production:
+      - prd
+      - prod
+      - production
+
+  # Label for failure/incident issues
+  labels:
+    failureIssue: bug
+
+  # Data collection settings
+  collection:
+    intervalMinutes: 30  # Sync interval
+    initialDays: 30      # Initial data fetch period
+
+  # Optional: Service filtering
+  # collection:
+  #   includeServices: [service-a, service-b]  # Only these services
+  #   excludeServices: [test-service]          # Exclude these services
+```
+
 ### 5. Set up environment variables
 
 ```bash
@@ -112,6 +156,27 @@ doraMetrics:
 # - read:org (Read org and team membership)
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
 ```
+
+### 6. GitHub Permissions
+
+#### GitHub Personal Access Token
+
+If you are using a GitHub Personal Access Token, ensure the token has the following scopes:
+
+- **`repo`** - Full control of private repositories
+- **`read:org`** - Read org and team membership
+
+#### GitHub App
+
+If you are using a GitHub App, configure the app with the following permissions:
+
+**Repository Permissions:**
+- **Contents**: Read & write
+- **Deployments**: Read
+- **Issues**: Read
+
+**Organization Permissions:**
+- **Members**: Read
 
 ## Requirements
 

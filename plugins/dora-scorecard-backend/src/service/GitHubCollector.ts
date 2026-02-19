@@ -2,8 +2,8 @@ import { Logger } from 'winston';
 import { CatalogClient } from '@backstage/catalog-client';
 import { AuthService } from '@backstage/backend-plugin-api';
 import { Config } from '@backstage/config';
-import fetch from 'node-fetch';
 import { DoraMetricsStore } from '../database/DoraMetricsStore';
+import { GithubClient } from './GithubClient';
 import {
   MetricItem,
   GitHubPullRequest,
@@ -15,7 +15,6 @@ import {
 
 interface GitHubCollectorConfig {
   organizations: string[];
-  token: string;
   productionEnvironments: string[];
   failureIssueLabel: string;
   intervalMinutes: number;
@@ -30,6 +29,7 @@ export class GitHubCollector {
   private readonly auth: AuthService;
   private readonly store: DoraMetricsStore;
   private readonly config: GitHubCollectorConfig;
+  private readonly githubClient: GithubClient;
   private isRunning: boolean = false;
 
   constructor(options: {
@@ -38,11 +38,13 @@ export class GitHubCollector {
     auth: AuthService;
     store: DoraMetricsStore;
     config: Config;
+    githubClient: GithubClient;
   }) {
     this.logger = options.logger;
     this.catalogClient = options.catalogClient;
     this.auth = options.auth;
     this.store = options.store;
+    this.githubClient = options.githubClient;
     this.config = this.loadConfig(options.config);
 
     this.logger.info(`[DORA] Configuration loaded:`, {
@@ -57,7 +59,6 @@ export class GitHubCollector {
 
     return {
       organizations: doraConfig?.getOptionalStringArray('github.organizations') || [],
-      token: doraConfig?.getOptionalString('github.token') || process.env.GITHUB_TOKEN || '',
       productionEnvironments: doraConfig?.getOptionalStringArray('environments.production') || ['prd', 'prod', 'production'],
       failureIssueLabel: doraConfig?.getOptionalString('labels.failureIssue') || 'bug',
       intervalMinutes: doraConfig?.getOptionalNumber('collection.intervalMinutes') || 30,
@@ -70,8 +71,11 @@ export class GitHubCollector {
   async start() {
     if (this.isRunning) return;
 
-    if (!this.config.token) {
-      this.logger.error('[DORA] GitHub token not configured. Set GITHUB_TOKEN environment variable or doraMetrics.github.token in app-config');
+    // Initialize GitHub authentication
+    try {
+      await this.githubClient.initializeToken();
+    } catch (error) {
+      this.logger.error(`[DORA] ${error}`);
       return;
     }
 
@@ -176,7 +180,7 @@ export class GitHubCollector {
       const loopDate = new Date(since);
 
       while (loopDate <= today) {
-        const dateStr = loopDate.toISOString().split('T')[0];
+        const dateStr = `${loopDate.getFullYear()}-${String(loopDate.getMonth() + 1).padStart(2, '0')}-${String(loopDate.getDate()).padStart(2, '0')}`;
         const metrics = this.calculateDailyMetrics(rawData, dateStr);
         await this.store.upsertDailyMetrics(entityRef, dateStr, metrics);
         loopDate.setDate(loopDate.getDate() + 1);
@@ -238,7 +242,7 @@ export class GitHubCollector {
 
     while (hasNextPage) {
       try {
-        const response: GraphQlDeploymentResponse = await this.fetchGitHubGraphQL<GraphQlDeploymentResponse>(query, {
+        const response: GraphQlDeploymentResponse = await this.githubClient.fetchGraphQL<GraphQlDeploymentResponse>(query, {
           owner: org,
           repo: repo,
           environments: environments,
@@ -292,7 +296,7 @@ export class GitHubCollector {
     while (hasMore) {
       const url = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}per_page=100&page=${page}`;
       try {
-        const data = await this.fetchGitHub<T[]>(url);
+        const data = await this.githubClient.fetchREST<T[]>(url);
 
         if (!Array.isArray(data) || data.length === 0) {
           hasMore = false;
@@ -310,35 +314,6 @@ export class GitHubCollector {
       }
     }
     return allResults;
-  }
-
-  private async fetchGitHubGraphQL<T>(query: string, variables: any): Promise<T> {
-    const response = await fetch('https://api.github.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.config.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query, variables }),
-    });
-
-    if (!response.ok) throw new Error(`GraphQL Error: ${response.status}`);
-    return response.json() as Promise<T>;
-  }
-
-  private async fetchGitHub<T>(url: string): Promise<T> {
-    const headers: Record<string, string> = { 'Accept': 'application/vnd.github.v3+json' };
-    if (this.config.token) headers['Authorization'] = `Bearer ${this.config.token}`;
-
-    const response = await fetch(url, { headers });
-
-    if (response.status === 403) {
-      await this.delay(10000);
-      throw new Error(`GitHub Rate Limit Exceeded`);
-    }
-
-    if (!response.ok) throw new Error(`API Error ${response.status}`);
-    return response.json() as Promise<T>;
   }
 
   private calculateDailyMetrics(raw: GitHubData, dateStr: string): DailyMetrics {

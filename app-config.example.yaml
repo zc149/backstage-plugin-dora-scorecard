@@ -1,0 +1,74 @@
+# Example App Configuration for DORA Scorecard Plugin
+
+# ============================================================================
+# OPTION 1: Personal Access Token (Simple Setup)
+# ============================================================================
+
+doraMetrics:
+  github:
+    organizations:
+      - my-organization
+    token: ghp_xxxxxxxxxxxxxxxxxxxxx
+  
+  environments:
+    production:
+      - prd
+      - prod
+      - production
+  
+  labels:
+    failureIssue: bug
+  
+  collection:
+    intervalMinutes: 30
+    initialDays: 30
+    includeServices: []
+    excludeServices: []
+
+  targets:
+    deploymentFrequency: 7   # per week
+    leadTime: 24             # hours
+    changeFailureRate: 5     # percentage
+    mttr: 60                 # minutes
+
+# ============================================================================
+# OPTION 2: GitHub App (Recommended for Organizations)
+# ============================================================================
+
+integrations:
+  github:
+    - host: github.com
+      apps:
+        - appId: ${GITHUB_APP_ID}
+          clientId: ${GITHUB_APP_CLIENT_ID}
+          clientSecret: ${GITHUB_APP_CLIENT_SECRET}
+          privateKey: |
+            ${GITHUB_APP_PRIVATE_KEY}
+
+doraMetrics:
+  github:
+    organizations:
+      - my-organization
+  
+  environments:
+    production:
+      - prd
+      - prod
+      - production
+  
+  labels:
+    failureIssue: bug
+  
+  collection:
+    intervalMinutes: 30
+    initialDays: 30
+    includeServices: []
+    excludeServices:
+      - deprecated-service
+      - test-service
+  
+  targets:
+    deploymentFrequency: 7   # per week
+    leadTime: 24             # hours
+    changeFailureRate: 5     # percentage
+    mttr: 60                 # minutes

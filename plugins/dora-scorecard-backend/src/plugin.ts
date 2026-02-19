@@ -3,6 +3,7 @@ import { CatalogClient } from '@backstage/catalog-client';
 import { createRouter } from './service/router';
 import { GitHubCollector } from './service/GitHubCollector';
 import { DoraMetricsStore } from './database/DoraMetricsStore';
+import { GithubClient } from './service/GithubClient';
 
 export const doraMetricsPlugin = createBackendPlugin({
   pluginId: 'dora-metrics',
@@ -33,12 +34,14 @@ export const doraMetricsPlugin = createBackendPlugin({
         // Start GitHub data collector (scheduler)
         const catalogClient = new CatalogClient({ discoveryApi: discovery });
         const store = new DoraMetricsStore(db);
+        const githubClient = new GithubClient({logger: logger as any, config: config});
         const collector = new GitHubCollector({
           logger: logger as any,
           catalogClient,
           auth,
           store,
           config,
+          githubClient
         });
 
         collector.start();
