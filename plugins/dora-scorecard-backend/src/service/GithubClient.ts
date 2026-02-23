@@ -9,144 +9,199 @@ interface GithubClientConfig {
   organizations: string[];
 }
 
-/**
- * GitHub API client with support for both Personal Access Token and GitHub App authentication
- */
+interface GithubClientOptions {
+  logger: Logger;
+  config: Config;
+}
+
+const TOKEN_CONFIG = {
+  GITHUB_APP_TOKEN_LIFETIME_MS: 60 * 60 * 1000,
+  TOKEN_REFRESH_BUFFER_MS: 5 * 60 * 1000,
+} as const;
+
+const GITHUB_API = {
+  GRAPHQL_ENDPOINT: 'https://api.github.com/graphql',
+  DEFAULT_HOSTNAME: 'github.com',
+} as const;
+
 export class GithubClient {
   private readonly logger: Logger;
   private readonly config: GithubClientConfig;
   private readonly scmIntegrations: ScmIntegrations;
   private readonly credentialsProvider: DefaultGithubCredentialsProvider;
-  private githubToken: string = '';
-  private tokenInitialized: boolean = false;
+  private cachedToken: string | null = null;
+  private tokenExpiresAt: number = 0;
 
-  constructor(options: {
-    logger: Logger;
-    config: Config;
-  }) {
+  constructor(options: GithubClientOptions) {
     this.logger = options.logger;
     this.scmIntegrations = ScmIntegrations.fromConfig(options.config);
-    this.credentialsProvider = DefaultGithubCredentialsProvider.fromIntegrations(this.scmIntegrations);
-    this.config = this.loadConfig(options.config);
+    this.credentialsProvider =
+      DefaultGithubCredentialsProvider.fromIntegrations(this.scmIntegrations);
+    this.config = this.parseConfig(options.config);
   }
 
-  private loadConfig(config: Config): GithubClientConfig {
+  async initializeToken(): Promise<void> {
+    try {
+      await this.getToken();
+      this.logger.info('[DORA] GitHub authentication validated successfully');
+    } catch (error) {
+      this.logger.error(
+        '[DORA] Failed to initialize GitHub authentication',
+        error,
+      );
+      throw error;
+    }
+  }
+
+  // Parse and validate GitHub configuration from Backstage config.
+  private parseConfig(config: Config): GithubClientConfig {
     const doraConfig = config.getOptionalConfig('doraMetrics');
 
     return {
-      token: doraConfig?.getOptionalString('github.token') || process.env.GITHUB_TOKEN || '',
-      hostname: 'github.com',
-      organizations: doraConfig?.getOptionalStringArray('github.organizations') || [],
+      token:
+        doraConfig?.getOptionalString('github.token') ||
+        process.env.GITHUB_TOKEN ||
+        '',
+      hostname: GITHUB_API.DEFAULT_HOSTNAME,
+      organizations:
+        doraConfig?.getOptionalStringArray('github.organizations') || [],
     };
   }
 
-  /**
-   * Initialize and retrieve GitHub token
-   * Priority: 1) doraMetrics.github.token, 2) GitHub App from integrations.github.apps
-   */
-  async initializeToken(): Promise<void> {
-    if (this.tokenInitialized) {
-      return;
-    }
-
+  // Get a valid GitHub authentication token with automatic caching and refresh.
+  private async getToken(): Promise<string> {
     if (this.config.token) {
-      this.logger.info('[DORA] Using configured GitHub token from doraMetrics.github.token');
-      this.githubToken = this.config.token;
-      this.tokenInitialized = true;
-      return;
+      return this.config.token;
     }
 
-    const githubIntegration = this.scmIntegrations.github.byHost(this.config.hostname);
-    const hasGitHubApp = githubIntegration?.config.apps && githubIntegration.config.apps.length > 0;
-
-    if (hasGitHubApp) {
-      this.logger.info('[DORA] Generating token from GitHub App (integrations.github.apps)');
-      try {
-        this.githubToken = await this.getGitHubAppToken();
-        this.tokenInitialized = true;
-        return;
-      } catch (error) {
-        this.logger.error(`[DORA] Failed to generate token from GitHub App: ${error}`);
-        throw error;
-      }
-    }
-
-    throw new Error('GitHub authentication is not configured. Please set the GITHUB_TOKEN environment variable, or provide a value for doraMetrics.github.token, or configure a GitHub App under integrations.github.apps');
+    return this.getOrRefreshAppToken();
   }
 
-  /**
-   * Get GitHub App installation token using Backstage's DefaultGithubCredentialsProvider
-   * Reads from integrations.github.apps configuration
-   */
-  private async getGitHubAppToken(): Promise<string> {
+  // Get or refresh the GitHub App installation token with caching.
+  private async getOrRefreshAppToken(): Promise<string> {
+    const now = Date.now();
+
+    if (this.cachedToken && now < this.tokenExpiresAt) {
+      return this.cachedToken;
+    }
+
+    if (!this.isGitHubAppConfigured()) {
+      throw new Error(
+        'GitHub authentication is not configured. ' +
+          'Please configure one of the following: ' +
+          '1) Set GITHUB_TOKEN environment variable, ' +
+          '2) Set doraMetrics.github.token in config, ' +
+          '3) Configure a GitHub App under integrations.github.apps',
+      );
+    }
+
     try {
-      if (!this.config.organizations || this.config.organizations.length === 0) {
-        throw new Error('No organizations configured in doraMetrics.github.organizations. GitHub App requires at least one organization.');
-      }
+      this.cachedToken = await this.generateGitHubAppToken();
+      const validityDurationMs =
+        TOKEN_CONFIG.GITHUB_APP_TOKEN_LIFETIME_MS -
+        TOKEN_CONFIG.TOKEN_REFRESH_BUFFER_MS;
+      this.tokenExpiresAt = now + validityDurationMs;
 
-      const organization = this.config.organizations[0];
-      const url = `https://${this.config.hostname}/${organization}`;
+      this.logger.info(
+        `[DORA] GitHub App token generated and cached (valid for ${validityDurationMs / 60000} minutes)`,
+      );
 
-      this.logger.info(`[DORA] Requesting credentials for organization: ${organization}`);
+      return this.cachedToken;
+    } catch (error) {
+      this.logger.error('[DORA] Failed to generate GitHub App token', error);
+      throw error;
+    }
+  }
 
+  // Check if a GitHub App is configured in the integrations.
+  private isGitHubAppConfigured(): boolean {
+    const githubIntegration = this.scmIntegrations.github.byHost(
+      this.config.hostname,
+    );
+    return (
+      githubIntegration?.config.apps !== undefined &&
+      githubIntegration.config.apps.length > 0
+    );
+  }
+
+  // Generate a new GitHub App installation token using Backstage's credentials provider.
+  private async generateGitHubAppToken(): Promise<string> {
+    if (!this.config.organizations || this.config.organizations.length === 0) {
+      throw new Error(
+        'No organizations configured in doraMetrics.github.organizations. ' +
+          'GitHub App authentication requires at least one organization.',
+      );
+    }
+
+    const organization = this.config.organizations[0];
+    const url = `https://${this.config.hostname}/${organization}`;
+
+    try {
       const credentials = await this.credentialsProvider.getCredentials({
-        url: url,
+        url,
       });
 
       if (!credentials?.token) {
-        throw new Error(`Failed to get token from GitHub credentials provider for ${url}. Ensure GitHub App is installed on organization: ${organization}`);
+        throw new Error(
+          `Failed to obtain token for ${url}. ` +
+            `Ensure the GitHub App is installed on organization: ${organization}`,
+        );
       }
-
-      this.logger.info(`[DORA] Successfully generated token from GitHub App for organization: ${organization}`);
 
       return credentials.token;
     } catch (error) {
-      this.logger.error(`[DORA] Error getting credentials from GitHub App: ${error}`);
-      throw new Error(`GitHub App authentication failed. Check integrations.github.apps configuration and ensure app is installed on organization: ${error}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `GitHub App authentication failed for organization "${organization}". ` +
+          `Verify integrations.github.apps configuration and app installation. ` +
+          `Details: ${errorMessage}`,
+      );
     }
   }
 
-  /**
-   * Make a GraphQL request to GitHub
-   */
+  // Execute a GraphQL query against the GitHub API.
   async fetchGraphQL<T>(query: string, variables: any): Promise<T> {
-    const response = await fetch('https://api.github.com/graphql', {
+    const token = await this.getToken();
+    const response = await fetch(GITHUB_API.GRAPHQL_ENDPOINT, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.githubToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ query, variables }),
     });
 
     if (!response.ok) {
-      throw new Error(`GraphQL Error: ${response.status}`);
+      const errorMessage = `GitHub GraphQL request failed with status ${response.status}: ${response.statusText}`;
+      this.logger.error('[DORA]', errorMessage);
+      throw new Error(errorMessage);
     }
 
     return response.json() as Promise<T>;
   }
 
-  /**
-   * Make a REST API request to GitHub
-   */
+  // Execute a REST API request against the GitHub API.
   async fetchREST<T>(url: string): Promise<T> {
+    const token = await this.getToken();
     const headers: Record<string, string> = {
-      'Accept': 'application/vnd.github.v3+json'
+      Accept: 'application/vnd.github.v3+json',
+      Authorization: `Bearer ${token}`,
     };
-
-    if (this.githubToken) {
-      headers['Authorization'] = `Bearer ${this.githubToken}`;
-    }
 
     const response = await fetch(url, { headers });
 
     if (response.status === 403) {
       const resetTime = response.headers.get('x-ratelimit-reset');
-      throw new Error(`GitHub Rate Limit Exceeded. Reset at: ${resetTime}`);
+      const errorMessage = `GitHub rate limit exceeded. Resets at: ${resetTime}`;
+      this.logger.error('[DORA]', errorMessage);
+      throw new Error(errorMessage);
     }
 
     if (!response.ok) {
-      throw new Error(`GitHub API Error: ${response.status} - ${response.statusText}`);
+      const errorMessage = `GitHub REST API request failed with status ${response.status}: ${response.statusText}`;
+      this.logger.error('[DORA]', errorMessage);
+      throw new Error(errorMessage);
     }
 
     return response.json() as Promise<T>;
