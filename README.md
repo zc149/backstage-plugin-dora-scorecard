@@ -53,7 +53,23 @@ const serviceEntityPage = (
 );
 ```
 
-### 3. Add the backend plugin
+### 3. Register the frontend plugin (required)
+
+```typescript
+// packages/app/src/App.tsx
+import { createApp } from '@backstage/app-defaults';
+import { doraMetricsPlugin } from '@jikwan/backstage-plugin-dora-scorecard';
+
+const app = createApp({
+  // ...other options...
+  plugins: [doraMetricsPlugin],
+});
+```
+
+Without this registration, `DoraScorecard` can fail with:
+`No implementation available for apiRef{plugin.dora-metrics.service}`.
+
+### 4. Add the backend plugin
 
 ```typescript
 // packages/backend/src/index.ts
@@ -68,7 +84,7 @@ backend.add(import('@jikwan/backstage-plugin-dora-scorecard-backend'));
 backend.start();
 ```
 
-### 4. Configure the plugin
+### 5. Configure the plugin
 
 Add the following to your `app-config.yaml`:
 
@@ -148,7 +164,7 @@ doraMetrics:
   #   excludeServices: [test-service]          # Exclude these services
 ```
 
-### 5. Set up environment variables
+### 6. Set up environment variables
 
 ```bash
 # GitHub Personal Access Token with the following scopes:
@@ -157,7 +173,7 @@ doraMetrics:
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
 ```
 
-### 6. GitHub Permissions
+### 7. GitHub Permissions
 
 #### GitHub Personal Access Token
 
